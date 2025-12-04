@@ -9,14 +9,17 @@ Created on Thu Feb 15 09:39:32 2024
 # from abc import ABCMeta, abstractmethod
 # import h5py
 import scipy
-from datetime import datetime
+from datetime import datetime, timedelta
 import numpy as np
+#from xml.dom.minidom import parseString
+import xml.etree.ElementTree as ET
+import os
 # import geojson
 # import pyproj
 # from osgeo import gdal, osr
 # from scipy import optimize
 # import os
-from xml.dom.minidom import parseString
+
 
 
 class nisarOrbit():
@@ -27,6 +30,7 @@ class nisarOrbit():
 #    __metaclass__ = ABCMeta
 
     def __init__(self, h5OrbitGroup=None, XMLOrbit=None, minSVInterval=10.0,
+                 referenceDate=None,
                  firstZeroDopplerTime=None, lastZeroDopplerTime=None):
         '''
         Init nisarOrbit. Load orbit data if provided.
@@ -59,7 +63,7 @@ class nisarOrbit():
         if h5OrbitGroup is not None:
             self.parseStateVectorsH5(h5OrbitGroup)
         elif XMLOrbit is not None:
-            self.parseStateVectorsXML(XMLOrbit)
+            self.parseStateVectorsXML(XMLOrbit, referenceDate=referenceDate)
         else:
             self.printError('No hdf for xml orbit information given')
         #
@@ -226,55 +230,133 @@ class nisarOrbit():
 
         for children in xmlData.childNodes:
             self._checkChildren(children, level+1, sv)
+            
+    def parseStateVectorsXML(self, XMLFile,
+                                 referenceDate=None,
+                                 timePad=200):
+            '''
+            Parse the state vector data from the xml file
 
-    def parseStateVectorsXML(self, XMLFile, referenceDate=None):
-        '''
-        Parse the state vector data from the xml file
+            Parameters
+            ----------
+            XMLFile : str
+                Name of xml file with state vector data.
 
-        Parameters
-        ----------
-        XMLFile : str
-            Name of xml file with state vector data.
+            Returns
+            -------
+            sv : dict
+                dictionary wit time (tai, utc, gps), position(x,y,z), and
+                velocity (vx, vy, vy) data.
+            '''
+            #
+            # Initial state vectors
+            sv = {'tai': [], 'utc': [], 'gps': [],
+                  'x': [], 'y': [], 'z': [], 'vx': [], 'vy': [], 'vz': []}
+            #
+            # Open the xml file
+            # Handle file path vs XML string
+            if os.path.exists(XMLFile):
+                tree = ET.parse(XMLFile)
+                root = tree.getroot()
+            else:
+                # Assume it's an XML string
+                root = ET.fromstring(XMLFile)
+            #
+            # Read state vector date
+            osv_list = root.find("orbitStateVectorList")
+            if osv_list is None:
+                raise ValueError("No <orbitStateVectorList> found in XML")
+            for osv in osv_list.findall("orbitStateVector"):
+                for key in sv:
+                    if key in ['tai', 'utc']:
+                        sv[key].append(self._parseTime(osv.findtext(key)))
+                    else:
+                        sv[key].append(self._parseFloat(osv.findtext(key)))
+            #      
+            # Compute the reference data as mid point if not specfic
+            if referenceDate is None:
+                referenceDay = sv['utc'][len(sv['utc'])//2]
+            #
+            referenceDay = referenceDate.replace(hour=0, 
+                                                 minute=0,
+                                                 second=0,
+                                                 microsecond=0)
+            # Limit state vectors to this window
+            startTime = referenceDay + \
+                timedelta(seconds=int(self.firstZeroDopplerTime - timePad))
+            endTime = referenceDay + \
+                timedelta(seconds=int(self.lastZeroDopplerTime + timePad))
+            #
+            utc = np.array(sv['utc'])
+            iKeep = (utc >= startTime) & (utc <= endTime)
+            #
+            for key in sv:
+                sv[key] = np.array(sv[key])[iKeep]
+            #
+            self.NumberOfStateVectors = len(sv['utc'])
+            self.TimeOfFirstStateVector = (sv['utc'][0] -
+                                           referenceDay).total_seconds()
+            self.StateVectorInterval = (sv['utc'][1] -
+                                        sv['utc'][0]).total_seconds()
+            #
+            # Get position and velocity
+            endTime = self.TimeOfFirstStateVector + \
+                self.StateVectorInterval * (self.NumberOfStateVectors)
+            self.time = np.arange(self.TimeOfFirstStateVector,
+                                  endTime, self.StateVectorInterval)
+            self.position = np.column_stack([sv['x'], sv['y'], sv['z']])
+            self.velocity = np.column_stack([sv['vx'], sv['vy'], sv['vz']])
+            #
+            return
 
-        Returns
-        -------
-        sv : dict
-            dictionary wit time (tai, utc, gps), position(x,y,z), and
-            velocity (vx, vy, vy) data.
-        '''
-        #
-        # Initial state vectors
-        sv = {'tai': [], 'utc': [], 'gps': [],
-              'x': [], 'y': [], 'z': [], 'vx': [], 'vy': [], 'vz': []}
-        #
-        # Open the xml file
-        with open(XMLFile, 'r') as fp:
-            for line in fp:
-                # Avoid any blank lines
-                if len(line) > 200:
-                    break
-        #
-        # Loop to find sv data, then quit loop
-        for xmlData in parseString(line).childNodes:
-            self._checkChildren(xmlData, 0, sv)
-            if len(sv['x']) > 5:
-                break
-        #
-        if referenceDate is None:
-            referenceDate = sv['utc'][0].replace(hour=0, minute=0,
-                                                 second=0, microsecond=0)
-        #
-        self.NumberOfStateVectors = len(sv['utc'])
-        self.TimeOfFirstStateVector = (sv['utc'][0] -
-                                       referenceDate).total_seconds()
-        self.StateVectorInterval = (sv['utc'][1] -
-                                    sv['utc'][0]).total_seconds()
-        #
-        # Get position and velocity
-        endTime = self.TimeOfFirstStateVector + \
-            self.StateVectorInterval * (self.NumberOfStateVectors)
-        self.time = np.arange(self.TimeOfFirstStateVector,
-                              endTime, self.StateVectorInterval)
-        self.position = np.column_stack([sv['x'], sv['y'], sv['z']])
-        self.velocity = np.column_stack([sv['vx'], sv['vy'], sv['vz']])
-        return
+    # def parseStateVectorsXML(self, XMLFile, referenceDate=None):
+    #     '''
+    #     Parse the state vector data from the xml file
+
+    #     Parameters
+    #     ----------
+    #     XMLFile : str
+    #         Name of xml file with state vector data.
+
+    #     Returns
+    #     -------
+    #     sv : dict
+    #         dictionary wit time (tai, utc, gps), position(x,y,z), and
+    #         velocity (vx, vy, vy) data.
+    #     '''
+    #     #
+    #     # Initial state vectors
+    #     sv = {'tai': [], 'utc': [], 'gps': [],
+    #           'x': [], 'y': [], 'z': [], 'vx': [], 'vy': [], 'vz': []}
+    #     #
+    #     # Open the xml file
+    #     with open(XMLFile, 'r') as fp:
+    #         for line in fp:
+    #             # Avoid any blank lines
+    #             if len(line) > 200:
+    #                 break
+    #     #
+    #     # Loop to find sv data, then quit loop
+    #     for xmlData in parseString(line).childNodes:
+    #         self._checkChildren(xmlData, 0, sv)
+    #         if len(sv['x']) > 5:
+    #             break
+    #     #
+    #     if referenceDate is None:
+    #         referenceDate = sv['utc'][0].replace(hour=0, minute=0,
+    #                                              second=0, microsecond=0)
+    #     #
+    #     self.NumberOfStateVectors = len(sv['utc'])
+    #     self.TimeOfFirstStateVector = (sv['utc'][0] -
+    #                                    referenceDate).total_seconds()
+    #     self.StateVectorInterval = (sv['utc'][1] -
+    #                                 sv['utc'][0]).total_seconds()
+    #     #
+    #     # Get position and velocity
+    #     endTime = self.TimeOfFirstStateVector + \
+    #         self.StateVectorInterval * (self.NumberOfStateVectors)
+    #     self.time = np.arange(self.TimeOfFirstStateVector,
+    #                           endTime, self.StateVectorInterval)
+    #     self.position = np.column_stack([sv['x'], sv['y'], sv['z']])
+    #     self.velocity = np.column_stack([sv['vx'], sv['vy'], sv['vz']])
+    #     return

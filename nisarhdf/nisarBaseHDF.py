@@ -1009,6 +1009,7 @@ class nisarBaseHDF():
         else:
             orbit = nisarOrbit(
                 XMLOrbit=XMLOrbit,
+                referenceDate=self.datetime,
                 firstZeroDopplerTime=self.SLCFirstZeroDopplerTime,
                 lastZeroDopplerTime=self.SLCLastZeroDopplerTime)
             # print('orbit parsed')

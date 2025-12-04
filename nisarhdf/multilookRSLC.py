@@ -25,11 +25,13 @@ def parseCommandLine():
     parser.add_argument('--frequencyB', action="store_true",
                         help='Select frequencyB [frequencyA] ')    
     parser.add_argument('--dB', action="store_true",
-                        help='Output results in dB')  
+                        help='Output results in dB (GCOV only)')  
     parser.add_argument('--polarization', type=str, default='HH',
                         choices=['HH', 'VV', 'HV', 'VH'],
                         help='Polarization for \n\n\033[1mnon-GCOV\n\n\033[0m '
                         'products [first like pol]')
+    parser.add_argument('--orbitPOE', type=str, default=None,
+                        help='Precision Orbit file [orbit from RSLC]')
     parser.add_argument('--nlooksRange', type=positive_int, default=1,
                         help='Number of looks in range [1]')
     parser.add_argument('--nlooksAzimuth', type=positive_int, default=1,
@@ -38,16 +40,18 @@ def parseCommandLine():
                         choices=['COG', 'GTiff', 'binary'],
                         help='Output format [GTiff: geotiff]')
     parser.add_argument('--geojsonFile', type=str, default=None,
-                        help='Override default name [geodat.nlooksRangexnlooksAzimuth.pow.geojson]')
+                        help='Override default name [geodatnlooksRangexnlooksAzimuth.geojson]')
     parser.add_argument('--noGeojson', action="store_true",
                         help='Do not output a geojson file')  
+    parser.add_argument('--geojsonOnly', action="store_true",
+                        help='Only create a geojson file with no image')  
     #
     args = parser.parse_args()
     #
     myArgs = {}
     #
     for arg in ['RSLCFile', 'output', 'polarization',
-                'outputFormat' , 'dB']:
+                'outputFormat', 'dB', 'orbitPOE', 'geojsonOnly']:
         myArgs[arg] = getattr(args, arg)
     myArgs['outputPath'] = os.path.dirname(myArgs['output'])
     #if args.output is None and not args.info:
@@ -57,7 +61,7 @@ def parseCommandLine():
                            True: 'frequencyB'}[args.frequencyB]
     #
     if args.geojsonFile is None and not args.noGeojson:
-        geojsonFile  = f'geodat.{args.nlooksRange}x{args.nlooksAzimuth}.geojson'
+        geojsonFile  = f'geodat{args.nlooksRange}x{args.nlooksAzimuth}.geojson'
         myArgs['geojsonFile'] = os.path.join(myArgs['outputPath'], geojsonFile)
     else:
         myArgs['geojsonFile'] = args.geojsonFile
@@ -66,6 +70,7 @@ def parseCommandLine():
                                   'downsampleFactorColumn': args.nlooksRange}
     #
     return myArgs
+
 
 def print_s3_files_flat(tree, nameFilter=None, fileEndsWith=None, excludeName=None):
     """
@@ -117,12 +122,15 @@ def run():
     #sys.exit()
     # Read SLC
     myRSLC = nisarhdf.nisarRSLCHDF()
+    noLoadData = myArgs['geojsonOnly'] # Use for debug
     myRSLC.openHDF(myArgs['RSLCFile'],
-                   fields=[myArgs['polarization']], 
-                   useRos3=False,
-                   useNumpy=True,
-                   power=True,
-                   downsampleFactor=myArgs['downsampleFactor'])
+                 fields=[myArgs['polarization']], 
+                 useRos3=False,
+                 useNumpy=True,
+                 power=True,
+                 downsampleFactor=myArgs['downsampleFactor'],
+                 referenceOrbitXML=myArgs['orbitPOE'],
+                 noLoadData=noLoadData)
     #
     read = datetime.now()
     #
@@ -133,14 +141,15 @@ def run():
         driverName = myArgs['outputFormat']
         tiff = True
     #
-    myRSLC.writeData(myArgs['output'],
-                     bands=[myArgs['polarization']],
-                     tiff=tiff,
-                     grimp=True,
-                     driverName=driverName,
-                     vrtFile=f"{myArgs['output']}.vrt",
-                     noSuffix=True
-                     )
+    if not noLoadData:
+        myRSLC.writeData(myArgs['output'],
+                         bands=[myArgs['polarization']],
+                         tiff=tiff,
+                         grimp=True,
+                         driverName=driverName,
+                         vrtFile=f"{myArgs['output']}.vrt",
+                         noSuffix=True
+                         )
     #
     if myArgs['geojsonFile'] is not None:
         myRSLC.writeGeodatGeojson(filename=myArgs['geojsonFile'])

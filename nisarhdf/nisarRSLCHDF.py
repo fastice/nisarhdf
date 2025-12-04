@@ -3,7 +3,7 @@
 """
 Created on Mon Oct 14 08:05:24 2024
 
-@author: ian
+@author: ianf
 """
 
 from nisarhdf import nisarBaseRangeDopplerHDF
@@ -80,7 +80,8 @@ class nisarRSLCHDF(nisarBaseRangeDopplerHDF):
         self.parseRefDate()
         self.getSLCSLantRangeAndZeroDoppler()
         self.effectivePRF()
-        self.orbit = self.parseStateVectors(XMLOrbit=self.referenceOrbitXML)
+        self.orbit = \
+            self.parseStateVectors(XMLOrbit=self.referenceOrbitXML)               
         self.getSceneCenterSatelliteHeight()
         self.getSLCSize(**keywords)
         self.NumberRangeLooks = 1
@@ -92,7 +93,9 @@ class nisarRSLCHDF(nisarBaseRangeDopplerHDF):
         fields = [x for x in fields if x in self.polarizations]
         # load data
         print('loading as power', power)
-        self.loadData(fields, useNumpy=useNumpy, power=power, noLoadData=noLoadData)
+        
+        self.loadData(fields, useNumpy=useNumpy, power=power,
+                      noLoadData=noLoadData)
         self.NumberRangeLooks *= self.downsampleFactorColumn
         self.NumberAzimuthLooks *= self.downsampleFactorRow
         #  
