@@ -632,7 +632,9 @@ class nisarBaseHDF():
         try:
             if 's3' in hdfFile:
                 if useRos3:
-                    self.h5Full = self._openS3(hdfFile, page_buf_size=page_buf_size, verbose=verbose)
+                    self.h5Full = self._openS3(hdfFile,
+                                               page_buf_size=page_buf_size,
+                                               verbose=verbose)
                 else:
                     self.h5Full = self._openS3InMemory(hdfFile, verbose=verbose)
             elif 'https' in hdfFile:
@@ -1269,7 +1271,8 @@ class nisarBaseHDF():
                   noSuffix=False, driverName='COG',
                   quickLook=False,
                   sigma0=False,
-                  vrtFile=None):
+                  vrtFile=None,
+                  scale=1.):
         '''
         Write data to binary or tiff file for all data types. Non offset
         results are saved as individual files (filenameRoot.band[.tif] which
@@ -1362,7 +1365,7 @@ class nisarBaseHDF():
                                      noSuffix=noSuffix,
                                      driverName=driverName,
                                      quickLook=quickLook,
-                                     vrtFile=vrtFile)
+                                     vrtFile=vrtFile,scale=scale)
         else:
             if 'digitalElevationModel' in bands:
                 self._writeNonOffsetData(filenameRoot,
@@ -1372,7 +1375,8 @@ class nisarBaseHDF():
                                          byteOrder=byteOrder,
                                          noSuffix=noSuffix,
                                          driverName=driverName,
-                                         quickLook=False)
+                                         quickLook=False, 
+                                         scale=scale)
             self._writeOffsets(filenameRoot,
                                bands=bands,
                                tiff=tiff,
@@ -1534,7 +1538,7 @@ class nisarBaseHDF():
     def _writeNonOffsetData(self, filenameRoot, bands=None, tiff=True,
                             byteOrder='LSB', grimp=False, noSuffix=False,
                             driverName='COG', quickLook=False,
-                            sigma0=False, vrtFile=None):
+                            sigma0=False, vrtFile=None, scale=1.):
         '''
         Write non-offset data to binary or tiff file.
 
@@ -1608,7 +1612,7 @@ class nisarBaseHDF():
                                  grimp=grimp,
                                  driverName=driverName,
                                  geoTransform=geoTransform,
-                                 band=band)
+                                 band=band, scale=scale)
         # Write a vrt
         sy, sx = data.shape
         if vrtFile is None:
@@ -1625,7 +1629,7 @@ class nisarBaseHDF():
     def _writeImageData(self, filename, data,  byteOrder="LSB",
                         dataType=None, grimp=False, tiff=True, quickLook=False,
                         noDataValue=None, driverName='COG', geoTransform=None,
-                        band=None):
+                        band=None, scale=1.):
         '''
         Call routine to either write data as a tiff or flat binary file.
 
@@ -1653,8 +1657,12 @@ class nisarBaseHDF():
         None.
 
         '''
+        data1 = data
+        if scale != 1.:
+            print(f'scaling data by {scale}')
+            data1 = data * scale
         if not tiff and not quickLook:
-            self._writeBinaryImageData(filename, data,
+            self._writeBinaryImageData(filename, data1,
                                        byteOrder=byteOrder,
                                        dataType=None,
                                        noDataValue=noDataValue,
@@ -1663,14 +1671,14 @@ class nisarBaseHDF():
             if grimp and self.coordType == 'GEO':
                 self.writeGeodat(f'{filename}.geodat')
         elif tiff and not quickLook:
-            self._writeTiffImageData(filename, data,
+            self._writeTiffImageData(filename, data1,
                                      dataType=None,
                                      noDataValue=noDataValue,
                                      driverName=driverName,
                                      geoTransform=geoTransform)
         elif quickLook:
             self._writePNG(filename,
-                           data,
+                           data1,
                            band=band)
         else:
             print('invalid image format')

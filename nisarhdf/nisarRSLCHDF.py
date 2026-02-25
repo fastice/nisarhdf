@@ -98,6 +98,7 @@ class nisarRSLCHDF(nisarBaseRangeDopplerHDF):
                       noLoadData=noLoadData)
         self.NumberRangeLooks *= self.downsampleFactorColumn
         self.NumberAzimuthLooks *= self.downsampleFactorRow
+        #print(self.downsampleFactorRow, self.downsampleFactorColumn)
         #  
         self.getRangeBandWidth()
         self.getMLSize()

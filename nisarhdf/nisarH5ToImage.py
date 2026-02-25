@@ -169,10 +169,14 @@ def parseCommandLine():
                         help='Select frequencyB [frequencyA] ')    
     parser.add_argument('--dB', action="store_true",
                         help='Output results in dB (GCOV only)')  
+    parser.add_argument('--noSuffix', action="store_true",
+                        help='Do not include suffix if only one field')  
     parser.add_argument('--sigma0', action="store_true",
                         help='Output results as sigma0 (GCOV only) [gamma0]')  
     parser.add_argument('--scaleToPixels', action="store_true",
                         help='Scale offsets to pixels (ROFF, GOFF only)')  
+    parser.add_argument('--scale', type=float, default=1.,
+                        help='Scale Factor')  
     parser.add_argument('--wrapped', action="store_true",
                         help='Wrapped interferogram (GUNW only)')  
     parser.add_argument('--polarization', type=str, default=None,
@@ -219,7 +223,7 @@ def parseCommandLine():
     # args that need no checking
     for arg in ['productName', 'output', 'polarization',
                 'outputFormat', 'info', 'ros3',
-                'downsampleFactor', 'quickLook']:
+                'downsampleFactor', 'quickLook', 'noSuffix', 'scale']:
         myArgs[arg] = getattr(args, arg)
     # Force 'ros3' for info
     if myArgs['info']:
@@ -323,7 +327,7 @@ def getProductType(productType, productPath):
             return productType
     printError('Product type not specified and cannot parse from product path')
     
-def outputData(myArgs, myProduct):
+def outputData(myArgs, myProduct, noSuffix=False, scale=1):
     '''
     Output data
 
@@ -354,7 +358,9 @@ def outputData(myArgs, myProduct):
     myProduct.writeData(myArgs['output'],
                         tiff=tiff,
                         quickLook=myArgs['quickLook'],           
-                        driverName=driverName, bands=None, **keywords)
+                        driverName=driverName, bands=None,
+                        noSuffix=noSuffix,
+                        scale=scale, **keywords)
     return
  
 
@@ -442,14 +448,22 @@ def run():
                       downsampleFactor=myArgs['downsampleFactor'],
                       **myArgs['hdfOpenKeywords']
                       )
+    noSuffix = False
+    nFields = 0
+    for field in myArgs['fields']:
+        if hasattr(myProduct, field):
+            nFields += 1
+    if myArgs['noSuffix']:
+        noSuffix = True
+    print('noSuffix', noSuffix, nFields)
     read = datetime.now()
     #
-    print(f'Data loaded')
+    print('Data loaded')
     # print info and return for --info
     if myArgs['info']:
         printInfo(myArgs, myProduct)
     else:
-        outputData(myArgs, myProduct)  
+        outputData(myArgs, myProduct, noSuffix=noSuffix, scale=myArgs['scale'])  
     write = datetime.now()
     print('\n\033[1mRun time: \033[0m', end='\n')
     print(f'Load data: {read-start}')

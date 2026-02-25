@@ -376,6 +376,7 @@ class nisarBaseRangeDopplerHDF(nisarBaseHDF):
         #
         # Extract minimum rectangle.
         x, y = self._getRectangle()
+        #print(x, y)
         #
         # Sort and id corners
         self._idCorners(x, y)
@@ -410,7 +411,8 @@ class nisarBaseRangeDopplerHDF(nisarBaseHDF):
         for r in nearFar:
             for t in earlyLate:
                 # Changed to direct computation so secondary would work
-                x[i], y[i] = self.lltoxy(*self.RTtoLatLon(r, t ,0)[0:2])
+                x[i], y[i] = self.lltoxy(*self.RTtoLatLon(r, t, 0)[0:2])
+                #print( x[i], y[i])
                 #x[i], y[i] = self.xyCube([r], [t], [0])
                 i += 1
         if self.epsg in [4326]:
@@ -557,7 +559,8 @@ class nisarBaseRangeDopplerHDF(nisarBaseHDF):
             [[self.corners[x] for x in ['ll', 'ul', 'ur', 'lr', 'll']]])
         self.geodatGeojson = geojson.Feature(geometry=geoJsonGeometry,
                                              properties=self.geodatDict)
-       
+        #print(self.NumberRangeLooks, self.NumberAzimuthLooks)
+        #print(self.geodatDict)
         # Not secondary so continue
         if filename is None:
             filename = f'geodat{self.NumberRangeLooks}x' \
@@ -607,6 +610,7 @@ class nisarBaseRangeDopplerHDF(nisarBaseHDF):
             if type(svData) is np.ndarray:
                 svData = list(svData)
             self.geodatDict[sv] = svData
+        self.geodatDict['coordOrder'] = 'LonLat'
 
     def getCorrectedTime(self):
         '''
