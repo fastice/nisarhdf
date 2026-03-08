@@ -1617,6 +1617,9 @@ class nisarBaseHDF():
         sy, sx = data.shape
         if vrtFile is None:
             vrtFile = f'{filenameRoot}.vrt'
+        epsg = None
+        if self.coordType == 'GEO':
+            epsg = self.epsg
         writeMultiBandVrt(vrtFile,
                           sx, sy,
                           sourceFiles,
@@ -1624,7 +1627,7 @@ class nisarBaseHDF():
                           eType=dataTypes,
                           geoTransform=geoTransform,
                           noDataValue=noDataValues, metaData=meta,
-                          byteOrder=byteOrder, tiff=tiff, epsg=self.epsg)
+                          byteOrder=byteOrder, tiff=tiff, epsg=epsg)
 
     def _writeImageData(self, filename, data,  byteOrder="LSB",
                         dataType=None, grimp=False, tiff=True, quickLook=False,
@@ -2379,6 +2382,21 @@ class nisarBaseHDF():
             return np.degrees(elevationAngle), np.degrees(incidenceAngle)
         return elevationAngle, incidenceAngle
 
+    def adjust_zdTime(self, zdTime):
+        zd = np.asarray(zdTime)
+    
+        first = zd.item() if zd.ndim == 0 else zd[0]
+    
+        if first < 10000 and self.orbit.TimeOfFirstStateVector > 80000:
+            zd = zd + 86400
+    
+        if np.isscalar(zdTime):
+            return zd.item()
+        elif isinstance(zdTime, list):
+            return zd.tolist()
+        else:
+            return zd
+        
     def getSatPositionAndVel(self, zdTime):
         '''
         Get satellite position for given zdTime
@@ -2391,14 +2409,17 @@ class nisarBaseHDF():
         Returns
         -------
         None.
-
         '''
-        position = [self.orbit.xsv([zdTime])[0],
-                    self.orbit.ysv([zdTime])[0],
-                    self.orbit.zsv([zdTime])[0]]
-        velocity = [self.orbit.vxsv([zdTime])[0],
-                    self.orbit.vysv([zdTime])[0],
-                    self.orbit.vzsv([zdTime])[0]]
+        # State vectors that straddle midnight exceed 86400, while the 
+        # zdTime might start just after midnight, this will force correct
+        # interpolation in this case
+        zdTime1 = self.adjust_zdTime(zdTime)
+        position = [self.orbit.xsv([zdTime1])[0],
+                    self.orbit.ysv([zdTime1])[0],
+                    self.orbit.zsv([zdTime1])[0]]
+        velocity = [self.orbit.vxsv([zdTime1])[0],
+                    self.orbit.vysv([zdTime1])[0],
+                    self.orbit.vzsv([zdTime1])[0]]
         return position, velocity
 
     def getSatelliteHeight(self, zdTime):
@@ -2419,10 +2440,11 @@ class nisarBaseHDF():
         if not hasattr(self, 'ECEFtoLL'):
             self.ECEFtoLL = pyproj.Transformer.from_crs("EPSG:4978",
                                                         "EPSG:4326").transform
+        zdTime1 = self.adjust_zdTime(zdTime)
         # Get the ECEF coords
-        x = self.orbit.xsv(zdTime)
-        y = self.orbit.ysv(zdTime)
-        z = self.orbit.zsv(zdTime)
+        x = self.orbit.xsv(zdTime1)
+        y = self.orbit.ysv(zdTime1)
+        z = self.orbit.zsv(zdTime1)
         # Convert to geodetic lat, lon, height above ellipsoid
         latSat, lonSat, hSat = self.ECEFtoLL(x, y, z)
         return hSat

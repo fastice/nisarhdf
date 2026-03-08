@@ -28,7 +28,13 @@ def readVrtAsXarray(filename, mask_and_scale=True):
                                      band_as_variable=True,
                                      mask_and_scale=True)
     # extract band names from 'Description' in each band
-    bandNames = [getattr(xarray[b], 'Description') for b in xarray.data_vars]
+   # bandNames = [getattr(xarray[b], 'Description') for b in xarray.data_vars]
+    bandNames = []
+    for b in xarray.data_vars:
+        attrs = xarray[b].attrs
+        name = attrs.get('Description', attrs.get('long_name', b))
+        bandNames.append(name)
     # Rename the bands
-    xarray = xarray.rename(dict(zip([x for x in xarray.data_vars], bandNames)))
+    if len(set(bandNames)) == len(bandNames):
+        xarray = xarray.rename(dict(zip(xarray.data_vars, bandNames)))
     return xarray

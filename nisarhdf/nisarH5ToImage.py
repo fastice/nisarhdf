@@ -179,6 +179,8 @@ def parseCommandLine():
                         help='Scale Factor')  
     parser.add_argument('--wrapped', action="store_true",
                         help='Wrapped interferogram (GUNW only)')  
+    parser.add_argument('--MSB', action="store_true",
+                        help='Write data with MSB byte order')  
     parser.add_argument('--polarization', type=str, default=None,
                         choices=['HH', 'VV', 'HV', 'VH'],
                         help='Polarization for \n\n\033[1mnon-GCOV\n\n\033[0m '
@@ -211,6 +213,8 @@ def parseCommandLine():
     specialKeywords(myArgs, ['GUNW'], ['wrapped'], args)
     myArgs['frequency'] = {False: 'frequencyA',
                            True: 'frequencyB'}[args.frequencyB]
+    myArgs['byteOrder'] = {False: 'LSB',
+                           True: 'MSB'}[args.MSB]
     #
     processHDFOpenKeywords(args, myArgs)
     #
@@ -360,6 +364,7 @@ def outputData(myArgs, myProduct, noSuffix=False, scale=1):
                         quickLook=myArgs['quickLook'],           
                         driverName=driverName, bands=None,
                         noSuffix=noSuffix,
+                        byteOrder=myArgs['byteOrder'],
                         scale=scale, **keywords)
     return
  
