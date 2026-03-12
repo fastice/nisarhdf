@@ -8,6 +8,7 @@ Created on Thu Feb  1 10:44:13 2024
 from nisarhdf.nisarBaseRangeDopplerHDF import nisarBaseRangeDopplerHDF
 import os
 import numpy as np
+from scipy import ndimage
 
 from nisarhdf import writeMultiBandVrt, formatGeojson
 
@@ -131,4 +132,67 @@ class nisarRUNWHDF(nisarBaseRangeDopplerHDF):
                           'unwrappedPhase',
                           'digitalElevationModel']
             self.loadData(fields, noLoadData=noLoadData)
+            
 
+    def cleanIonosphere(self, edge_mask_px=80, iterations_low=250, 
+                        downsample=8, sigma_az=150, sigma_rg=10):
+        """
+        Complete pipeline: 
+        1. Masking & Erosion
+        2. Multi-scale Inpainting (removes blocks/gaps)
+        3. Anisotropic Gaussian Smoothing (removes glacier leakage)
+        """
+        arr = np.asanyarray(self.ionospherePhaseScreen).astype(np.float32) 
+        # 1. Internal Mask Generation
+        # Valid = not NoData, not NaN
+        mask = np.isfinite(arr)
+        
+        if edge_mask_px > 0:
+            print(f"Eroding {edge_mask_px} pixels from edges...")
+            mask = ndimage.binary_erosion(mask, iterations=edge_mask_px)
+    
+        if not np.any(mask):
+            return np.zeros_like(arr)
+    
+        # 2. Low-Resolution Pass (Global Trend)
+        print(f"Downsampling by {downsample}x for global continuity...")
+        low_arr = ndimage.zoom(arr, 1.0/downsample, order=1)
+        low_mask = ndimage.zoom(mask.astype(np.float32), 
+                                1.0/downsample, 
+                                order=0) > 0.5
+        
+        # Initialize low-res gaps with median
+        fill_val = np.median(low_arr[low_mask])
+        filled_low = np.where(low_mask, low_arr, fill_val)
+        
+        kernel = np.array([[0.25, 0.5, 0.25], [0.5, 0, 0.5], [0.25, 0.5, 0.25]])
+        kernel /= kernel.sum()
+        
+        for _ in range(iterations_low):
+            smoothed = ndimage.convolve(filled_low, kernel, mode='reflect')
+            filled_low = np.where(low_mask, low_arr, smoothed)
+        
+        # 3. Upsample and Refine
+        print("Upsampling and refining at full resolution...")
+        zoom_factors = [o / l for o, l in zip(arr.shape, filled_low.shape)]
+        smart_fill = ndimage.zoom(filled_low, zoom_factors, order=1)
+        
+        # Ensure exact shape match
+        smart_fill = smart_fill[:arr.shape[0], :arr.shape[1]]
+        
+        # Start high-res with the 'smart' background
+        final_filled = np.where(mask, arr, smart_fill)
+        
+        # Quick polish to stitch edges perfectly
+        for _ in range(30):
+            smoothed = ndimage.convolve(final_filled, kernel, mode='reflect')
+            final_filled = np.where(mask, arr, smoothed)
+        
+        # 4. Anisotropic Gaussian Smoothing
+        # This specifically targets the 'sinuous' glacier leakage
+        print(f"Applying directional blur (Az={sigma_az}, Rg={sigma_rg})...")
+        self.ionosphereCleaned = ndimage.gaussian_filter(final_filled, 
+                                                         sigma=(sigma_az,
+                                                                sigma_rg))
+    
+    #self.bands.append('ionosphereCleaned')
