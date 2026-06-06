@@ -17,7 +17,8 @@ def parseCommandLine():
     '''
     parser = argparse.ArgumentParser(
         description='\n\n\033[1mMultilook NISAR RSLC to power image Tiff(s), COG(s) or binary files optionally to dB'
-        '\033[0m\n\n',)
+        '\033[0m\n\n',
+        epilog='Part of the nisarhdf package.')
     parser.add_argument('RSLCFile', type=str,
                         help='NISAR RSLC product (file path, s3, or https)')
     parser.add_argument('output', type=str, nargs="?",

@@ -10,7 +10,8 @@ s3Count = [0]
 
 def parseCommandLine():
     parser = argparse.ArgumentParser(
-        description='\n\n\033[1mGet S3 recursive bucket listing\033[0m\n\n',)
+        description='\n\n\033[1mGet S3 recursive bucket listing\033[0m\n\n',
+        epilog='Part of the nisarhdf package.')
     parser.add_argument('s3link', type=str,
                         help='s3 bucket to query')
     parser.add_argument('--nameFilter', type=str, default=None,

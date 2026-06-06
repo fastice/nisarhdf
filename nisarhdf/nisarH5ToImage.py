@@ -147,7 +147,8 @@ def parseCommandLine():
     '''
     parser = argparse.ArgumentParser(
         description='\n\n\033[1mConvert NISAR H5 product to Tiff(s), COG(s) or binary files'
-        '\033[0m\n\n',)
+        '\033[0m\n\n',
+        epilog='Part of the nisarhdf package.')
     parser.add_argument('productName', type=str,
                         help='NISAR h5 product (file path, s3, or https)')
     parser.add_argument('output', type=str, nargs="?",
@@ -197,6 +198,9 @@ def parseCommandLine():
     parser.add_argument('--outputFormat', type=str, default='COG',
                         choices=['COG', 'GTiff', 'binary'],
                         help='Output format [COG: cloud optimized geotiff]')
+    parser.add_argument('--vrtOnly', action="store_true",
+                        help='Write a VRT pointing directly to HDF5 bands; '
+                             'no data is extracted [False]')
     #
     args = parser.parse_args()
     #
@@ -227,7 +231,8 @@ def parseCommandLine():
     # args that need no checking
     for arg in ['productName', 'output', 'polarization',
                 'outputFormat', 'info', 'ros3',
-                'downsampleFactor', 'quickLook', 'noSuffix', 'scale']:
+                'downsampleFactor', 'quickLook', 'noSuffix', 'scale',
+                'vrtOnly']:
         myArgs[arg] = getattr(args, arg)
     # Force 'ros3' for info
     if myArgs['info']:
@@ -358,14 +363,16 @@ def outputData(myArgs, myProduct, noSuffix=False, scale=1):
     tiff, driverName = {'GTiff': [True, 'GTiff'],
                         'COG': [True, 'COG'],
                         'binary': [False, '']}[myArgs['outputFormat']]
-    # write data 
+    # write data
     myProduct.writeData(myArgs['output'],
                         tiff=tiff,
-                        quickLook=myArgs['quickLook'],           
+                        quickLook=myArgs['quickLook'],
                         driverName=driverName, bands=None,
                         noSuffix=noSuffix,
                         byteOrder=myArgs['byteOrder'],
-                        scale=scale, **keywords)
+                        scale=scale,
+                        vrtOnly=myArgs.get('vrtOnly', False),
+                        **keywords)
     return
  
 
@@ -446,7 +453,7 @@ def run():
     start = datetime.now()
     myProduct.openHDF(myArgs['productName'],
                       productType=myArgs['productType'],
-                      noLoadData=myArgs['info'],
+                      noLoadData=myArgs['info'] or myArgs['vrtOnly'],
                       fields=myArgs['fields'],
                       useRos3=myArgs['ros3'],
                       page_buf_size=2*1024**3,
