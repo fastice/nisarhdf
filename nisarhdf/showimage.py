@@ -328,7 +328,7 @@ def openProfileWindow(dist, vals_or_list, p0, p1, titles=None, parent=None, pos=
         titles = [None] * n
 
     WIN_W = 800
-    WIN_H = 200 + 200 * n
+    WIN_H = 234 + 200 * n  # +34 for axis-control row
 
     win = tk.Toplevel()
     win.title(f'Profile  ({p0[1]}, {p0[0]}) → ({p1[1]}, {p1[0]})')
@@ -348,8 +348,10 @@ def openProfileWindow(dist, vals_or_list, p0, p1, titles=None, parent=None, pos=
         win.geometry(f'{WIN_W}x{WIN_H}')
 
     fig = mfig.Figure(figsize=(8, WIN_H / DPI), dpi=DPI)
+    prof_axes = []
     for i, (vals, ttl) in enumerate(zip(vals_list, titles)):
         ax = fig.add_subplot(n, 1, i + 1)
+        prof_axes.append(ax)
         if vals.ndim == 1:
             ax.plot(dist, vals, color='steelblue')
         else:
@@ -364,10 +366,62 @@ def openProfileWindow(dist, vals_or_list, p0, p1, titles=None, parent=None, pos=
         ax.grid(True, alpha=0.4)
     fig.tight_layout()
 
-    ttk.Button(win, text='Close', command=win.destroy).pack(side='bottom', pady=4)
+    btn_frame = ttk.Frame(win)
+    btn_frame.pack(side='bottom', fill='x', padx=4, pady=(2, 6))
+    ttk.Button(btn_frame, text='Close', command=win.destroy).pack(side='right', padx=4)
+
+    ctrl_frame = ttk.Frame(win)
+    ctrl_frame.pack(side='bottom', fill='x', padx=4, pady=2)
+    log_y_p = [False]
+    ymin_vp = tk.StringVar()
+    ymax_vp = tk.StringVar()
+    ttk.Label(ctrl_frame, text='Y:').pack(side='left')
+    ttk.Entry(ctrl_frame, textvariable=ymin_vp, width=8).pack(side='left', padx=(0, 2))
+    ttk.Label(ctrl_frame, text='to').pack(side='left')
+    ttk.Entry(ctrl_frame, textvariable=ymax_vp, width=8).pack(side='left', padx=(0, 8))
+
+    mpl_ref = [None]
+
+    def _apply_prof_y():
+        try:
+            lo, hi = float(ymin_vp.get()), float(ymax_vp.get())
+        except ValueError:
+            return
+        for ax in prof_axes:
+            ax.set_ylim(lo, hi)
+        mpl_ref[0].draw_idle()
+
+    def _auto_prof_y():
+        for ax in prof_axes:
+            ax.set_ylim(auto=True)
+            ax.relim()
+            ax.autoscale_view()
+        mpl_ref[0].draw_idle()
+        if prof_axes:
+            lo, hi = prof_axes[0].get_ylim()
+            ymin_vp.set(f'{lo:.4g}')
+            ymax_vp.set(f'{hi:.4g}')
+
+    lbtn_ref = [None]
+
+    def _toggle_prof_log():
+        log_y_p[0] = not log_y_p[0]
+        scale = 'log' if log_y_p[0] else 'linear'
+        lbtn_ref[0].config(text='Log Y ✓' if log_y_p[0] else 'Log Y')
+        for ax in prof_axes:
+            ax.set_yscale(scale)
+        mpl_ref[0].draw_idle()
+
+    ttk.Button(ctrl_frame, text='Apply', command=_apply_prof_y).pack(side='left', padx=2)
+    ttk.Button(ctrl_frame, text='Auto', command=_auto_prof_y).pack(side='left', padx=2)
+    lbtn = ttk.Button(ctrl_frame, text='Log Y', command=_toggle_prof_log)
+    lbtn.pack(side='left', padx=2)
+    lbtn_ref[0] = lbtn
+
     mpl = FigureCanvasTkAgg(fig, master=win)
     mpl.draw()
     mpl.get_tk_widget().pack(fill='both', expand=True)
+    mpl_ref[0] = mpl
 
 
 # -----------------------------------------------------------------------
@@ -453,18 +507,19 @@ def bindScroll(tk_canvas):
 # -----------------------------------------------------------------------
 
 def showImage(image_defs, sw, sh, switch_infos=None):
-    """Display 1–3 same-size images side by side with a floating control palette.
+    """Display 1–3 images side by side with a floating control palette.
 
     image_defs: list of dicts, each with keys:
         dec (ndarray), title (str), cmap (str), vmin (float), vmax (float), is_rgb (bool)
-    All images must share the same (ny, nx) shape.
+    Images may differ in size; each pane gets its own scrollregion.
     """
     import tkinter as tk
     from tkinter import ttk
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
     n_imgs = len(image_defs)
-    ny, nx = image_defs[0]['dec'].shape[:2]
+    max_ny = max(d['dec'].shape[0] for d in image_defs)
+    max_nx = max(d['dec'].shape[1] for d in image_defs)
 
     root = tk.Tk()
     root.title(' | '.join(f'{i+1}) {os.path.basename(d["title"])}'
@@ -482,6 +537,8 @@ def showImage(image_defs, sw, sh, switch_infos=None):
     row_active          = [False]
     lines_visible       = [True]
     overlay_set_visible = [None]
+    all_same_size = all(d['dec'].shape == image_defs[0]['dec'].shape for d in image_defs)
+    scroll_synced = [all_same_size]  # default: synced iff all same size
     profile_pts         = []
     # per-mode state; each window is independent
     plot_states = {
@@ -500,7 +557,15 @@ def showImage(image_defs, sw, sh, switch_infos=None):
     row_btn     = ttk.Button(btn_col, text='Row Plot')
     lines_btn   = ttk.Button(btn_col, text='Lines ✓')
     quit_btn    = ttk.Button(btn_col, text='Quit', command=root.destroy)
-    for btn in (pick_btn, profile_btn, col_btn, row_btn, lines_btn, quit_btn):
+    core_btns = [pick_btn, profile_btn, col_btn, row_btn, lines_btn]
+    if n_imgs > 1:
+        sync_btn = ttk.Button(btn_col,
+                              text='Sync ✓' if scroll_synced[0] else 'Sync')
+        core_btns.append(sync_btn)
+    else:
+        sync_btn = None
+    core_btns.append(quit_btn)
+    for btn in core_btns:
         btn.pack(side='top', fill='x', pady=2, padx=2)
 
     ttk.Separator(btn_col, orient='horizontal').pack(fill='x', pady=(4, 2))
@@ -588,12 +653,18 @@ def showImage(image_defs, sw, sh, switch_infos=None):
             overlay_set_visible[0](lines_visible[0])
     lines_btn.config(command=toggle_lines)
 
+    if sync_btn is not None:
+        def toggle_sync():
+            scroll_synced[0] = not scroll_synced[0]
+            sync_btn.config(text='Sync ✓' if scroll_synced[0] else 'Sync')
+        sync_btn.config(command=toggle_sync)
+
     def openOrReuseLineplot(mode):
         import matplotlib.figure as mfig
         state = plot_states[mode]
         x_label = 'Row index' if mode == 'col' else 'Column index'
         WIN_W = 800
-        BTN_H = 46
+        BTN_H = 80  # button row (46) + axis-control row (34)
 
         def _is_alive():
             w = state['win']
@@ -631,7 +702,7 @@ def showImage(image_defs, sw, sh, switch_infos=None):
 
         if not _is_alive():
             single = state['single']
-            WIN_H = 400 if single else 200 + 200 * n_imgs
+            WIN_H = 434 if single else 234 + 200 * n_imgs  # +34 for axis-control row
             x, y = nextPlotGeometry(WIN_W, WIN_H)
             win = tk.Toplevel()
             win.title('Column Plots' if mode == 'col' else 'Row Plots')
@@ -653,7 +724,7 @@ def showImage(image_defs, sw, sh, switch_infos=None):
                 _clear_mode_overlays()
                 _build_axes(state['fig'], state['single'])
                 state['canvas'].draw()
-                new_h = 400 if state['single'] else 200 + 200 * n_imgs
+                new_h = 434 if state['single'] else 234 + 200 * n_imgs
                 state['win'].geometry(f'{WIN_W}x{new_h}')
 
             single_win_btn.config(command=toggle_single_win)
@@ -686,6 +757,66 @@ def showImage(image_defs, sw, sh, switch_infos=None):
             ttk.Button(btn_frame, text='Save', command=save_plot).pack(side='left', padx=4)
             ttk.Button(btn_frame, text='Clear', command=clear_plots).pack(side='left', padx=4)
             ttk.Button(btn_frame, text='Close', command=win.destroy).pack(side='right', padx=4)
+
+            ctrl_frame = ttk.Frame(win)
+            ctrl_frame.pack(side='bottom', fill='x', padx=4, pady=2)
+            log_y = [False]
+            ymin_var = tk.StringVar()
+            ymax_var = tk.StringVar()
+            xmin_var = tk.StringVar()
+            xmax_var = tk.StringVar()
+            ttk.Label(ctrl_frame, text='Y:').pack(side='left')
+            ttk.Entry(ctrl_frame, textvariable=ymin_var, width=8).pack(side='left', padx=(0, 2))
+            ttk.Label(ctrl_frame, text='to').pack(side='left')
+            ttk.Entry(ctrl_frame, textvariable=ymax_var, width=8).pack(side='left', padx=(0, 10))
+            ttk.Label(ctrl_frame, text='X:').pack(side='left')
+            ttk.Entry(ctrl_frame, textvariable=xmin_var, width=8).pack(side='left', padx=(0, 2))
+            ttk.Label(ctrl_frame, text='to').pack(side='left')
+            ttk.Entry(ctrl_frame, textvariable=xmax_var, width=8).pack(side='left', padx=(0, 10))
+
+            def apply_limits():
+                for ax in state['axes']:
+                    try:
+                        ax.set_ylim(float(ymin_var.get()), float(ymax_var.get()))
+                    except ValueError:
+                        pass
+                    try:
+                        ax.set_xlim(float(xmin_var.get()), float(xmax_var.get()))
+                    except ValueError:
+                        pass
+                state['canvas'].draw_idle()
+
+            def auto_limits():
+                for ax in state['axes']:
+                    ax.set_ylim(auto=True)
+                    ax.set_xlim(auto=True)
+                    ax.relim()
+                    ax.autoscale_view()
+                state['canvas'].draw_idle()
+                if state['axes']:
+                    lo, hi = state['axes'][0].get_ylim()
+                    ymin_var.set(f'{lo:.4g}')
+                    ymax_var.set(f'{hi:.4g}')
+                    lo, hi = state['axes'][0].get_xlim()
+                    xmin_var.set(f'{lo:.4g}')
+                    xmax_var.set(f'{hi:.4g}')
+
+            log_btn_ref = [None]
+
+            def toggle_log_y():
+                log_y[0] = not log_y[0]
+                scale = 'log' if log_y[0] else 'linear'
+                log_btn_ref[0].config(text='Log Y ✓' if log_y[0] else 'Log Y')
+                for ax in state['axes']:
+                    ax.set_yscale(scale)
+                state['canvas'].draw_idle()
+
+            ttk.Button(ctrl_frame, text='Apply', command=apply_limits).pack(side='left', padx=2)
+            ttk.Button(ctrl_frame, text='Auto', command=auto_limits).pack(side='left', padx=2)
+            log_btn = ttk.Button(ctrl_frame, text='Log Y', command=toggle_log_y)
+            log_btn.pack(side='left', padx=2)
+            log_btn_ref[0] = log_btn
+
             canvas = FigureCanvasTkAgg(fig, master=win)
             canvas.draw()
             canvas.get_tk_widget().pack(fill='both', expand=True)
@@ -695,18 +826,21 @@ def showImage(image_defs, sw, sh, switch_infos=None):
 
     def doColPlot(col):
         axes, fig, canvas = openOrReuseLineplot('col')
-        rows = np.arange(ny)
         colors = []
         single = plot_states['col']['single']
         for i, idef in enumerate(image_defs):
+            dec = idef.get('raw', idef['dec'])
+            if col >= dec.shape[1]:
+                colors.append(None)
+                continue
             ax = axes[0] if single else axes[i]
             pfx = f'{i+1}: ' if single else ''
-            dec = idef.get('raw', idef['dec'])
+            rows_i = np.arange(dec.shape[0])
             if dec.ndim == 2:
-                line, = ax.plot(rows, dec[:, col], label=f'{pfx}col {col}')
+                line, = ax.plot(rows_i, dec[:, col], label=f'{pfx}col {col}')
                 colors.append(line.get_color())
             else:
-                plotted = [ax.plot(rows, dec[:, col, j],
+                plotted = [ax.plot(rows_i, dec[:, col, j],
                                    label=f'{pfx}col {col} {ch}')[0]
                            for j, ch in enumerate(('R', 'G', 'B')[:dec.shape[2]])]
                 colors.append(plotted[0].get_color())
@@ -718,19 +852,22 @@ def showImage(image_defs, sw, sh, switch_infos=None):
 
     def doRowPlot(row):
         axes, fig, canvas = openOrReuseLineplot('row')
-        cols_arr = np.arange(nx)
         colors = []
         single = plot_states['row']['single']
         for i, idef in enumerate(image_defs):
+            dec = idef.get('raw', idef['dec'])
+            if row >= dec.shape[0]:
+                colors.append(None)
+                continue
             ax = axes[0] if single else axes[i]
             pfx = f'{i+1}: ' if single else ''
-            dec = idef.get('raw', idef['dec'])
+            cols_i = np.arange(dec.shape[1])
             if dec.ndim == 2:
-                line, = ax.plot(cols_arr, dec[row, :],
+                line, = ax.plot(cols_i, dec[row, :],
                                 label=f'{pfx}row {row}')
                 colors.append(line.get_color())
             else:
-                plotted = [ax.plot(cols_arr, dec[row, :, j],
+                plotted = [ax.plot(cols_i, dec[row, :, j],
                                    label=f'{pfx}row {row} {ch}')[0]
                            for j, ch in enumerate(('R', 'G', 'B')[:dec.shape[2]])]
                 colors.append(plotted[0].get_color())
@@ -741,18 +878,18 @@ def showImage(image_defs, sw, sh, switch_infos=None):
         return colors
 
     def report_pick(col, row):
-        if 0 <= row < ny and 0 <= col < nx:
-            val_parts = []
-            for i, idef in enumerate(image_defs):
-                dec = idef.get('raw', idef['dec'])
+        val_parts = []
+        for i, idef in enumerate(image_defs):
+            dec = idef.get('raw', idef['dec'])
+            if 0 <= row < dec.shape[0] and 0 <= col < dec.shape[1]:
                 if dec.ndim == 2:
                     val_parts.append(f'val{i+1}={dec[row, col]:.6g}')
                 else:
                     val_parts.append(f'val{i+1}='
                                      + '/'.join(f'{v:.4g}' for v in dec[row, col]))
-            status_var.set(f'col={col}\nrow={row}\n' + '   '.join(val_parts))
-        else:
-            status_var.set(f'col={col}\nrow={row}\n(out of bounds)')
+            else:
+                val_parts.append(f'val{i+1}=OOB')
+        status_var.set(f'col={col}\nrow={row}\n' + '   '.join(val_parts))
 
     next_plot_y = [None]
 
@@ -784,10 +921,10 @@ def showImage(image_defs, sw, sh, switch_infos=None):
     usable_h = sh - IMG_Y - DECO_H
 
     # Compute viewport dimensions for both stacking orientations, pick larger area
-    vw_h = min(nx, max(50, (img_area_w - n_imgs * SCROLLBAR_W - cbar_w_total) // n_imgs))
-    vh_h = min(ny, max(50, usable_h - LABEL_H - SCROLLBAR_W))
-    vw_v = min(nx, max(50, img_area_w - SCROLLBAR_W - cbar_per_img))
-    vh_v = min(ny, max(50, (usable_h - n_imgs * (SCROLLBAR_W + LABEL_H)) // n_imgs))
+    vw_h = min(max_nx, max(50, (img_area_w - n_imgs * SCROLLBAR_W - cbar_w_total) // n_imgs))
+    vh_h = min(max_ny, max(50, usable_h - LABEL_H - SCROLLBAR_W))
+    vw_v = min(max_nx, max(50, img_area_w - SCROLLBAR_W - cbar_per_img))
+    vh_v = min(max_ny, max(50, (usable_h - n_imgs * (SCROLLBAR_W + LABEL_H)) // n_imgs))
     stack_horiz = (n_imgs == 1) or (vw_h * vh_h >= vw_v * vh_v)
     viewport_w = vw_h if stack_horiz else vw_v
     viewport_h = vh_h if stack_horiz else vh_v
@@ -795,13 +932,23 @@ def showImage(image_defs, sw, sh, switch_infos=None):
     all_canvases = []
     pane_refs = []  # per-pane refs for band switching
 
-    def sync_xview(*args):
-        for c in all_canvases:
-            c.xview(*args)
+    def make_hscroll(this_c):
+        def fn(*args):
+            this_c.xview(*args)
+            if scroll_synced[0]:
+                for c in all_canvases:
+                    if c is not this_c:
+                        c.xview(*args)
+        return fn
 
-    def sync_yview(*args):
-        for c in all_canvases:
-            c.yview(*args)
+    def make_vscroll(this_c):
+        def fn(*args):
+            this_c.yview(*args)
+            if scroll_synced[0]:
+                for c in all_canvases:
+                    if c is not this_c:
+                        c.yview(*args)
+        return fn
 
     outer = ttk.Frame(root)
     outer.pack(fill='both', expand=True)
@@ -823,7 +970,7 @@ def showImage(image_defs, sw, sh, switch_infos=None):
         sf.pack(side='left', fill='both', expand=True)
 
         title_lbl = ttk.Label(sf, text=f'{i+1}) {os.path.basename(idef["title"])}',
-                               anchor='center')
+                               anchor='center', wraplength=viewport_w)
         title_lbl.pack(side='top', fill='x', pady=(0, 1))
 
         xs = ttk.Scrollbar(sf, orient='horizontal')
@@ -834,29 +981,36 @@ def showImage(image_defs, sw, sh, switch_infos=None):
         c = tk.Canvas(sf, width=viewport_w, height=viewport_h,
                       xscrollcommand=xs.set, yscrollcommand=ys.set)
         c.pack(side='left', fill='both', expand=True)
-        xs.config(command=sync_xview)
-        ys.config(command=sync_yview)
+        xs.config(command=make_hscroll(c))
+        ys.config(command=make_vscroll(c))
 
+        ny_i, nx_i = idef['dec'].shape[:2]
         img_item = c.create_image(0, 0, anchor='nw', image=photo)
         c.image = photo
-        c.config(scrollregion=(0, 0, nx, ny))
+        c.config(scrollregion=(0, 0, nx_i, ny_i))
         all_canvases.append(c)
         pane_refs.append({'canvas': c, 'img_item': img_item,
                           'cbar_fig': cbar_fig_ref, 'cbar_cv': cbar_cv_ref,
-                          'title_lbl': title_lbl})
+                          'title_lbl': title_lbl, 'ny': ny_i, 'nx': nx_i})
 
     def _wy(event):
-        for c in all_canvases: c.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        targets = all_canvases if scroll_synced[0] else [event.widget]
+        for c in targets: c.yview_scroll(int(-1 * (event.delta / 120)), 'units')
     def _wx(event):
-        for c in all_canvases: c.xview_scroll(int(-1 * (event.delta / 120)), 'units')
+        targets = all_canvases if scroll_synced[0] else [event.widget]
+        for c in targets: c.xview_scroll(int(-1 * (event.delta / 120)), 'units')
     def _b4(event):
-        for c in all_canvases: c.yview_scroll(-1, 'units')
+        targets = all_canvases if scroll_synced[0] else [event.widget]
+        for c in targets: c.yview_scroll(-1, 'units')
     def _b5(event):
-        for c in all_canvases: c.yview_scroll(1, 'units')
+        targets = all_canvases if scroll_synced[0] else [event.widget]
+        for c in targets: c.yview_scroll(1, 'units')
     def _sb4(event):
-        for c in all_canvases: c.xview_scroll(-1, 'units')
+        targets = all_canvases if scroll_synced[0] else [event.widget]
+        for c in targets: c.xview_scroll(-1, 'units')
     def _sb5(event):
-        for c in all_canvases: c.xview_scroll(1, 'units')
+        targets = all_canvases if scroll_synced[0] else [event.widget]
+        for c in targets: c.xview_scroll(1, 'units')
     for c in all_canvases:
         c.bind('<MouseWheel>',       _wy)
         c.bind('<Shift-MouseWheel>', _wx)
@@ -893,14 +1047,18 @@ def showImage(image_defs, sw, sh, switch_infos=None):
             _add_canvas_item(canvas, item, profile_overlay_items)
 
     def draw_col_line(col, colors):
-        for canvas, color in zip(all_canvases, colors):
-            item = canvas.create_line(col, 0, col, ny - 1, fill=color, width=1)
-            _add_canvas_item(canvas, item, col_overlay_items)
+        for ref, color in zip(pane_refs, colors):
+            if color is None:
+                continue
+            item = ref['canvas'].create_line(col, 0, col, ref['ny'] - 1, fill=color, width=1)
+            _add_canvas_item(ref['canvas'], item, col_overlay_items)
 
     def draw_row_line(row, colors):
-        for canvas, color in zip(all_canvases, colors):
-            item = canvas.create_line(0, row, nx - 1, row, fill=color, width=1)
-            _add_canvas_item(canvas, item, row_overlay_items)
+        for ref, color in zip(pane_refs, colors):
+            if color is None:
+                continue
+            item = ref['canvas'].create_line(0, row, ref['nx'] - 1, row, fill=color, width=1)
+            _add_canvas_item(ref['canvas'], item, row_overlay_items)
 
     def canvas_set_visible(v):
         vis = 'normal' if v else 'hidden'
@@ -1174,8 +1332,8 @@ def main():
     is_nisar = n_nisar > 0
 
     if is_nisar:
-        if args.vel or args.bands:
-            sys.exit('showimage: --vel and --bands are not supported for NISAR HDF5 files')
+        if args.vel:
+            sys.exit('showimage: --vel is not supported for NISAR HDF5 files')
 
         sw, sh = getScreenSize()
         nisar_infos = []
@@ -1184,59 +1342,96 @@ def main():
                 f, frequency=args.freq, pol=args.pol)
             nisar_infos.append((f, nxi, nyi, product, loaders, h5))
 
-        sizes = [(nxi, nyi) for _, nxi, nyi, _, _, _ in nisar_infos]
-        if len(set(sizes)) > 1:
-            msgs = [f'  {f}: {nxi}×{nyi}' for f, nxi, nyi, _, _, _ in nisar_infos]
-            for *_, h5 in nisar_infos:
-                h5.close()
-            sys.exit('showimage: all images must have the same dimensions:\n'
-                     + '\n'.join(msgs))
-
-        nx, ny = sizes[0]
+        n_display = len(args.bands) if args.bands else len(args.files)
+        # factor for --bands (single file); multi-file uses per-file factor inside loop
+        nxi0, nyi0 = nisar_infos[0][1], nisar_infos[0][2]
         if args.fullRes:
             factor = 1
         elif args.decFactor is not None:
             factor = max(1, args.decFactor)
         else:
-            factor = max(1, math.ceil(nx / sw), math.ceil(ny / sh))
+            factor = max(1, math.ceil(nxi0 * n_display / sw), math.ceil(nyi0 / sh))
 
         mod_val = args.mod
         image_defs = []
         switch_infos = []
-        for f, nxi, nyi, product, loaders, h5 in nisar_infos:
-            first_band = next(iter(loaders))
-            base_dec = blockAverage(loaders[first_band](), factor)
-            dec = (np.where(np.isfinite(base_dec), base_dec % mod_val, base_dec)
-                   if mod_val is not None else base_dec)
-            vmin = args.vmin if args.vmin is not None else (
-                0.0 if mod_val is not None else np.nanpercentile(dec, 2))
-            vmax = args.vmax if args.vmax is not None else (
-                mod_val if mod_val is not None else np.nanpercentile(dec, 98))
-            print(f'{f} [{product}]: {nxi}×{nyi} px, {len(loaders)} field(s), '
-                  f'decimation ×{factor}')
-            print(f'  Displaying: {first_band}')
-            print(f'  Available: {", ".join(loaders.keys())}')
-            image_defs.append({
-                'dec': dec,
-                'base': base_dec,
-                'mod_val': mod_val,
-                'vmin_arg': args.vmin,
-                'vmax_arg': args.vmax,
-                'title': f'{first_band}: {os.path.basename(f)}',
-                'cmap': args.cmap,
-                'vmin': vmin,
-                'vmax': vmax,
-                'is_rgb': False,
-            })
-            switch_infos.append({
-                'loaders': loaders,
-                'factor': factor,
-                'mod_val': mod_val,
-                'cmap': args.cmap,
-                'vmin_arg': args.vmin,
-                'vmax_arg': args.vmax,
-                'cache': None if args.noCache else {first_band: base_dec},
-            })
+
+        if args.bands:
+            # Display up to 3 named fields; no band-switcher buttons (same as GDAL --bands)
+            f, nxi, nyi, product, loaders, h5 = nisar_infos[0]
+            for bname in args.bands:
+                if bname not in loaders:
+                    print(f'showimage: band "{bname}" not found — skipping',
+                          file=sys.stderr)
+                    print(f'  Available: {", ".join(loaders.keys())}',
+                          file=sys.stderr)
+                    continue
+                base_dec = blockAverage(loaders[bname](), factor)
+                dec = (np.where(np.isfinite(base_dec), base_dec % mod_val, base_dec)
+                       if mod_val is not None else base_dec)
+                vmin = args.vmin if args.vmin is not None else (
+                    0.0 if mod_val is not None else np.nanpercentile(dec, 2))
+                vmax = args.vmax if args.vmax is not None else (
+                    mod_val if mod_val is not None else np.nanpercentile(dec, 98))
+                print(f'{f} [{bname}]: {nxi}×{nyi} px, decimation ×{factor}')
+                image_defs.append({
+                    'dec': dec,
+                    'base': base_dec,
+                    'mod_val': mod_val,
+                    'vmin_arg': args.vmin,
+                    'vmax_arg': args.vmax,
+                    'title': bname,
+                    'cmap': args.cmap,
+                    'vmin': vmin,
+                    'vmax': vmax,
+                    'is_rgb': False,
+                })
+            if not image_defs:
+                for *_, h5 in nisar_infos:
+                    h5.close()
+                sys.exit('showimage: no valid bands found')
+            switch_infos = None
+        else:
+            for f, nxi, nyi, product, loaders, h5 in nisar_infos:
+                if args.fullRes:
+                    fi = 1
+                elif args.decFactor is not None:
+                    fi = max(1, args.decFactor)
+                else:
+                    fi = max(1, math.ceil(nxi * n_display / sw), math.ceil(nyi / sh))
+                first_band = next(iter(loaders))
+                base_dec = blockAverage(loaders[first_band](), fi)
+                dec = (np.where(np.isfinite(base_dec), base_dec % mod_val, base_dec)
+                       if mod_val is not None else base_dec)
+                vmin = args.vmin if args.vmin is not None else (
+                    0.0 if mod_val is not None else np.nanpercentile(dec, 2))
+                vmax = args.vmax if args.vmax is not None else (
+                    mod_val if mod_val is not None else np.nanpercentile(dec, 98))
+                print(f'{f} [{product}]: {nxi}×{nyi} px, {len(loaders)} field(s), '
+                      f'decimation ×{fi}')
+                print(f'  Displaying: {first_band}')
+                print(f'  Available: {", ".join(loaders.keys())}')
+                image_defs.append({
+                    'dec': dec,
+                    'base': base_dec,
+                    'mod_val': mod_val,
+                    'vmin_arg': args.vmin,
+                    'vmax_arg': args.vmax,
+                    'title': f'{first_band}: {os.path.basename(f)}',
+                    'cmap': args.cmap,
+                    'vmin': vmin,
+                    'vmax': vmax,
+                    'is_rgb': False,
+                })
+                switch_infos.append({
+                    'loaders': loaders,
+                    'factor': fi,
+                    'mod_val': mod_val,
+                    'cmap': args.cmap,
+                    'vmin_arg': args.vmin,
+                    'vmax_arg': args.vmax,
+                    'cache': None if args.noCache else {first_band: base_dec},
+                })
 
         showImage(image_defs, sw, sh, switch_infos=switch_infos)
         for *_, h5 in nisar_infos:
@@ -1258,19 +1453,16 @@ def main():
             sys.exit(f'Cannot open {f}: {e}')
 
     sizes = [(ds.RasterXSize, ds.RasterYSize) for ds in datasets]
-    if len(set(sizes)) > 1:
-        msgs = [f'  {f}: {w}×{h}' for f, (w, h) in zip(args.files, sizes)]
-        sys.exit('showimage: all images must have the same dimensions:\n' + '\n'.join(msgs))
-
-    nx, ny = sizes[0]
+    nx, ny = sizes[0]  # used by --vel and --bands (single-file paths)
     sw, sh = getScreenSize()
+    n_display = 1 if args.vel else (len(args.bands) if args.bands else len(args.files))
 
     if args.fullRes:
         factor = 1
     elif args.decFactor is not None:
         factor = max(1, args.decFactor)
     else:
-        factor = max(1, math.ceil(nx / sw), math.ceil(ny / sh))
+        factor = max(1, math.ceil(nx * n_display / sw), math.ceil(ny / sh))
 
     mod_val = args.mod
     image_defs = []
@@ -1349,7 +1541,7 @@ def main():
                 'mod_val': mod_val,
                 'vmin_arg': args.vmin,
                 'vmax_arg': args.vmax,
-                'title': f'{bname}: {f}',
+                'title': bname,
                 'cmap': args.cmap,
                 'vmin': vmin,
                 'vmax': vmax,
@@ -1358,9 +1550,18 @@ def main():
         if not image_defs:
             sys.exit('showimage: no valid bands found')
     else:
+        factors_per_file = []
         for ds, f in zip(datasets, args.files):
+            nx_i, ny_i = ds.RasterXSize, ds.RasterYSize
+            if args.fullRes:
+                fi = 1
+            elif args.decFactor is not None:
+                fi = max(1, args.decFactor)
+            else:
+                fi = max(1, math.ceil(nx_i * n_display / sw), math.ceil(ny_i / sh))
+            factors_per_file.append(fi)
             nb = ds.RasterCount
-            print(f'{f}: {nx}×{ny} px, {nb} band(s), decimation ×{factor}')
+            print(f'{f}: {nx_i}×{ny_i} px, {nb} band(s), decimation ×{fi}')
 
             if nb > 1:
                 bnames = getBandNames(ds)
@@ -1369,7 +1570,7 @@ def main():
                 print(f'    showimage [options] {os.path.basename(f)} --bands {suggestion}')
                 print(f'  Available bands: {", ".join(bnames)}')
 
-            base_dec = blockAverage(readBand(ds, 1), factor)
+            base_dec = blockAverage(readBand(ds, 1), fi)
             dec = (np.where(np.isfinite(base_dec), base_dec % mod_val, base_dec)
                    if mod_val is not None else base_dec)
             vmin = args.vmin if args.vmin is not None else (
@@ -1393,11 +1594,11 @@ def main():
     switch_infos = None
     if not args.vel and not args.bands:
         per_pane = [
-            {'ds': ds, 'factor': factor, 'mod_val': mod_val,
+            {'ds': ds, 'factor': fi, 'mod_val': mod_val,
              'cmap': args.cmap, 'vmin_arg': args.vmin, 'vmax_arg': args.vmax,
              'cache': None if args.noCache else {}}
             if ds.RasterCount > 1 else None
-            for ds in datasets
+            for ds, fi in zip(datasets, factors_per_file)
         ]
         if any(si is not None for si in per_pane):
             switch_infos = per_pane
