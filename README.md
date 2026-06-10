@@ -25,7 +25,7 @@ At present classes have been developed for **RSLC**, **ROFF**, **RUNW**, **RIFG*
 
 ## Command line utilities
 
-### `nisarh5toimage`
+### `nisarh5toimage` — [docs](Documents/nisarh5toimage.md)
 
 While HDF5 is a powerful format for archiving, other formats such as tiff and simple binary can be easier for many users to work with. To facilitate working with NISAR data for these users, `nisarh5toimage` can:
 
@@ -37,7 +37,7 @@ While HDF5 is a powerful format for archiving, other formats such as tiff and si
 
 The [nisarh5toimageTutorial](https://github.com/fastice/nisarhdf/blob/main/Notebooks/nisarh5toimageTutorial.ipynb) notebook includes several examples of how to use this program.
 
-### `showimage` *(new)*
+### `showimage` *(new)* — [docs](Documents/showimage.md)
 
 An interactive image viewer for NISAR HDF5, VRT, and GeoTIFF files. `showimage` can:
 
