@@ -145,15 +145,14 @@ class nisarRUNWHDF(nisarBaseRangeDopplerHDF):
         arr = np.asanyarray(self.ionospherePhaseScreen).astype(np.float32) 
         # 1. Internal Mask Generation
         # Valid = not NoData, not NaN
-        mask = np.isfinite(arr)
-        
+        mask = np.isfinite(arr) & (arr != -2000000000)
+     
         if edge_mask_px > 0:
             print(f"Eroding {edge_mask_px} pixels from edges...")
-            mask = ndimage.binary_erosion(mask, iterations=edge_mask_px)
-    
+            mask = ndimage.binary_erosion(mask, iterations=edge_mask_px)  
+        # if erosion removes to much proceed with uneroded mask
         if not np.any(mask):
-            return np.zeros_like(arr)
-    
+            mask = np.isfinite(arr) & (arr != -2000000000)
         # 2. Low-Resolution Pass (Global Trend)
         print(f"Downsampling by {downsample}x for global continuity...")
         low_arr = ndimage.zoom(arr, 1.0/downsample, order=1)
@@ -194,5 +193,4 @@ class nisarRUNWHDF(nisarBaseRangeDopplerHDF):
         self.ionosphereCleaned = ndimage.gaussian_filter(final_filled, 
                                                          sigma=(sigma_az,
                                                                 sigma_rg))
-    
-    #self.bands.append('ionosphereCleaned')
+

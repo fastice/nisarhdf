@@ -1,0 +1,5 @@
+Notebooks/Debug/
+*.egg-info/
+__pycache__/
+*.py~
+*.pyc

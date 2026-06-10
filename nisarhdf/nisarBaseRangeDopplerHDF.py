@@ -412,11 +412,19 @@ class nisarBaseRangeDopplerHDF(nisarBaseHDF):
             for t in earlyLate:
                 # Changed to direct computation so secondary would work
                 x[i], y[i] = self.lltoxy(*self.RTtoLatLon(r, t, 0)[0:2])
-                #print( x[i], y[i])
-                #x[i], y[i] = self.xyCube([r], [t], [0])
                 i += 1
-        if self.epsg in [4326]:
-            return y, x
+        # EN, LN, EF, LF
+        key = (self.LookDirection.lower(), self.PassType.lower())
+        mapping = {
+           ("left", "ascending"): np.array([2, 3, 0, 1]),
+           ("left", "descending"): np.array([1, 0, 3, 2]),
+           ("right", "ascending"): np.array([0, 1, 2, 3]),
+           ("right", "descending"):  np.array([3, 2, 1, 0]),
+        }
+        x = x[mapping[key]]
+        y = y[mapping[key]]
+        #if self.epsg in [4326]:
+        #    return y, x
         return x, y
 
     def _idCorners(self, x, y):
@@ -514,9 +522,9 @@ class nisarBaseRangeDopplerHDF(nisarBaseHDF):
         #
         # print(self.corners)
         geoJsonGeometry = geojson.Polygon(
-            [[self.corners[x] for x in ['ll', 'ul', 'ur', 'lr', 'll']]])
+            [[self.corners[x][::-1] for x in ['ll', 'ul', 'ur', 'lr', 'll']]])
         #print(geoJsonGeometry)
-        print(self.corners)
+        #print(self.corners)
 
         self.geodatGeojson = geojson.Feature(geometry=geoJsonGeometry,
                                              properties=self.geodatDict)
@@ -556,7 +564,7 @@ class nisarBaseRangeDopplerHDF(nisarBaseHDF):
         # print(self.corners)
         geoJsonGeometry = geojson.Polygon(
             # [[self.corners[x] for x in ['ll', 'lr', 'ur', 'ul', 'll']]])
-            [[self.corners[x] for x in ['ll', 'ul', 'ur', 'lr', 'll']]])
+            [[self.corners[x][::-1] for x in ['ll', 'ul', 'ur', 'lr', 'll']]])
         self.geodatGeojson = geojson.Feature(geometry=geoJsonGeometry,
                                              properties=self.geodatDict)
         #print(self.NumberRangeLooks, self.NumberAzimuthLooks)

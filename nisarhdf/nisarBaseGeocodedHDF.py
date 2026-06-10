@@ -230,7 +230,7 @@ class nisarBaseGeocodedHDF(nisarBaseHDF):
             dy *= -1
             yOrigin = self.y0 - self.dy / 2
         else:
-            yOrigin = self.y0 + (self.ySize + 0.5) * np.abs(self.dy)
+            yOrigin = self.y0 + (self.ySize - 0.5) * np.abs(self.dy)
         #
         geoTransform = [xOrigin, self.dx, 0., yOrigin, 0., dy] 
         if self.downsampleFactorRow > 1  or self.downsampleFactorColumn > 1:

@@ -277,9 +277,11 @@ class nisarBaseHDF():
         if self.product in ['RSLC']:
             for sv in self.orbit.stateVectors:
                 svData = self.orbit.stateVectors[sv]
-                # Convert to list
-                if type(svData) is np.ndarray:
-                    svData = list(svData)
+                # Use .tolist() so numpy scalars become plain Python floats;
+                # list() alone leaves np.float64 elements whose repr changed
+                # in NumPy 2.0 to include the 'np.float64(...)' wrapper.
+                if isinstance(svData, np.ndarray):
+                    svData = svData.tolist()
                 self.meta[sv] = svData
 
     def printParams(self):
@@ -1272,7 +1274,8 @@ class nisarBaseHDF():
                   quickLook=False,
                   sigma0=False,
                   vrtFile=None,
-                  scale=1.):
+                  scale=1.,
+                  vrtOnly=False):
         '''
         Write data to binary or tiff file for all data types. Non offset
         results are saved as individual files (filenameRoot.band[.tif] which
@@ -1365,7 +1368,8 @@ class nisarBaseHDF():
                                      noSuffix=noSuffix,
                                      driverName=driverName,
                                      quickLook=quickLook,
-                                     vrtFile=vrtFile,scale=scale)
+                                     vrtFile=vrtFile, scale=scale,
+                                     vrtOnly=vrtOnly)
         else:
             if 'digitalElevationModel' in bands:
                 self._writeNonOffsetData(filenameRoot,
@@ -1538,7 +1542,8 @@ class nisarBaseHDF():
     def _writeNonOffsetData(self, filenameRoot, bands=None, tiff=True,
                             byteOrder='LSB', grimp=False, noSuffix=False,
                             driverName='COG', quickLook=False,
-                            sigma0=False, vrtFile=None, scale=1.):
+                            sigma0=False, vrtFile=None, scale=1.,
+                            vrtOnly=False):
         '''
         Write non-offset data to binary or tiff file.
 
@@ -1570,6 +1575,13 @@ class nisarBaseHDF():
         None.
 
         '''
+        #
+        if vrtOnly:
+            from nisarhdf.writeVrtOnly import writeVrtOnly as _writeVrtOnly
+            if bands is None:
+                bands = self.dataFields
+            _writeVrtOnly(self, filenameRoot, bands, vrtFile=vrtFile)
+            return
         #
         if tiff and byteOrder != 'LSB':
             self.printError(f'Byte order {byteOrder} not supported for tiffs')

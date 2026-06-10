@@ -20,7 +20,8 @@ import numpy as np
 def writeMultiBandVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
                       byteOrder='MSB', eType=gdal.GDT_Float32,
                       geoTransform=[-0.5, 1., 0., -0.5, 0., 1.], metaData={},
-                      epsg=None, noDataValue=-2.0e9, tiff=True):
+                      epsg=None, noDataValue=-2.0e9, tiff=True,
+                      scales=None, offsets=None):
     '''
     Write a vrt for for several products as bands.
     Parameters
@@ -45,7 +46,10 @@ def writeMultiBandVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
         Seet to epsg value to set SRS. The default is None.
     noDataValue : int, float as appropriate, optional
         The nodata value. The default is -2.0e9.
-
+   scales : float, list
+       add scale factor to bands of vrt.
+   offsets : float, list
+       add offset (bias) to bands of vrt.
     Returns
     -------
     None.
@@ -70,19 +74,22 @@ def writeMultiBandVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
         _createTiffVrt(newVRTFile, sourceFiles, descriptions, noDataValue,
                        geoTransform=geoTransform,
                        metaData=metaData,
-                       epsg=epsg)
+                       epsg=epsg, scales=scales, offsets=offsets)
     else:
         _createBinaryVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
                          eType, noDataValue,
                          byteOrder=byteOrder,
                          geoTransform=geoTransform,
                          metaData=metaData,
-                         epsg=epsg)
+                         epsg=epsg, scales=scales, offsets=offsets)
 
 
 def _createTiffVrt(newVRTFile, sourceFiles, descriptions, noDataValues,
-                   geoTransform=[-0.5, 1., 0., -0.5, 0., 1.], metaData=None,
-                   epsg=None):
+                   geoTransform=[-0.5, 1., 0., -0.5, 0., 1.],
+                   metaData=None,
+                   epsg=None,
+                   scales=None,
+                   offsets=None):
     '''
     Write a tiff vrt using gdal.BuildVRT
 
@@ -102,7 +109,10 @@ def _createTiffVrt(newVRTFile, sourceFiles, descriptions, noDataValues,
         Dict with meta data that applies to all bands. The default is None.
     epsg : int, optional
         EPSG Code. The default is None.
-
+   scales : float, list
+       add scale factor to bands of vrt.
+   offsets : float, list
+       add offset (bias) to bands of vrt.
     Returns
     -------
     None.
@@ -111,11 +121,20 @@ def _createTiffVrt(newVRTFile, sourceFiles, descriptions, noDataValues,
     # Build the vrt
     try:
         # This should work, but fails with gdal.3.9.1. It seems to default to
-        # relativeToVRT=1, so maybe ok to leave out, but explicitly set if 
+        # relativeToVRT=1, so maybe ok to leave out, but explicitly set if
         # possible.
-        options = gdal.BuildVRTOptions(options=["relativeToVRT=1"], separate=True)
+        options = gdal.BuildVRTOptions(options=["relativeToVRT=1"],
+                                       separate=True)
     except Exception:
         options = gdal.BuildVRTOptions(separate=True)
+    #
+    nBands = len(sourceFiles)
+    # Create array of nones for none
+    if scales is None:
+        scales = [None] * nBands
+    if offsets is None:
+        offsets = [None] * nBands
+    #
     ds = gdal.BuildVRT(newVRTFile, sourceFiles, options=options)
     # print('meta', metaData)
     if bool(metaData):
@@ -125,16 +144,23 @@ def _createTiffVrt(newVRTFile, sourceFiles, descriptions, noDataValues,
         sr = osr.SpatialReference()
         sr.ImportFromEPSG(epsg)
         ds.SetSpatialRef(sr)
-    #
-    nBands = len(sourceFiles)
     # Update bands
-    for description, bandNumber, noDataValue in \
-            zip(descriptions, range(1, nBands + 1), noDataValues):
+    for description, bandNumber, noDataValue, scale, offset in \
+            zip(descriptions,
+                range(1, nBands + 1),
+                noDataValues,
+                scales,
+                offsets):
         #
         band = ds.GetRasterBand(bandNumber)
         band.SetMetadataItem("Description", description)
         if not isinstance(noDataValue, np.complex64):
             band.SetNoDataValue(noDataValue)
+        # Optionall scale/offset
+        if scale is not None:
+            band.SetScale(float(scale))
+        if offset is not None:
+            band.SetOffset(float(offset))
     ds.FlushCache()
     ds = None
 
@@ -144,7 +170,9 @@ def _createBinaryVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
                      byteOrder='LSB',
                      geoTransform=[-0.5, 1., 0., -0.5, 0., 1.],
                      metaData=None,
-                     epsg=None):
+                     epsg=None,
+                     scales=None,
+                     offsets=None):
     '''
     Write a tiff vrt using vrt driver directly since BuildVRT doesn't appear
     to work with binary files.
@@ -168,8 +196,11 @@ def _createBinaryVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
     metaData : dict, optional
         Dict with meta data that applies to all bands. The default is None.
     epsg : int, optional
-        EPSG Code. The default is None.
-
+        EPSG Code. The default is None
+    scales : float, list
+        add scale factor to bands of vrt.
+    offsets : float, list
+        add offset (bias) to bands of vrt.
     Returns
       -------
       None.
@@ -179,6 +210,11 @@ def _createBinaryVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
     vrt = drv.Create(newVRTFile, xSize, ySize, bands=0)
     vrt.SetGeoTransform(geoTransform)
     #
+    if scales is None:
+        scales = [None] * bands
+    if offsets is None:
+        offsets = [None] * bands
+    #
     if epsg is not None:
         sr = osr.SpatialReference()
         sr.ImportFromEPSG(epsg)
@@ -186,9 +222,10 @@ def _createBinaryVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
     if metaData is not None:
         vrt.SetMetadata(metaData)
     # Loop to add bands
-    for sourceFile, description, bandNumber, dataType, noDataValue in \
-            zip(sourceFiles, descriptions, range(1, bands + 1), eTypes,
-                noDataValues):
+    for sourceFile, description, bandNumber, dataType, noDataValue, \
+        scale, offset in zip(sourceFiles, descriptions,
+                             range(1, bands + 1), eTypes,
+                             noDataValues, scales, offsets):
         # setup options with filename
         options = [f"SourceFilename={os.path.basename(sourceFile)}",
                    "relativeToVRT=1",
@@ -202,5 +239,9 @@ def _createBinaryVrt(newVRTFile, xSize, ySize, sourceFiles, descriptions,
         band.SetMetadataItem("Description", description)
         if not isinstance(noDataValue, np.complex64):
             band.SetNoDataValue(noDataValue)
+        if scale is not None:
+            band.SetScale(float(scale))
+        if offset is not None:
+            band.SetOffset(float(offset))
     # Close the vrt
     vrt = None
