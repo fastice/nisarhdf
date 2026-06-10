@@ -13,6 +13,16 @@ In particular, it simplifies access to NISAR data by allowing:
 
 At present classes have been developed for **RSLC**, **ROFF**, **RUNW**, **RIFG**, **GOFF**, **GUNW**, and **GCOV** products. A tutorial notebook for each of these data types is included in the [Notebook](https://github.com/fastice/nisarhdf/blob/main/Notebooks) folder of this repository.
 
+## Documentation
+
+- [Overview](Documents/Overview.md) — package overview and class hierarchy
+- [BaseClasses](Documents/BaseClasses.md) — base HDF reader classes
+- [RangeDopplerProducts](Documents/RangeDopplerProducts.md) — RSLC, ROFF, RUNW, RIFG classes
+- [GeocodedProducts](Documents/GeocodedProducts.md) — GOFF, GUNW, GCOV classes
+- [nisarh5toimage](Documents/nisarh5toimage.md) — command-line HDF5 extraction utility
+- [showimage](Documents/showimage.md) — interactive viewer for NISAR HDF5, VRT, and GeoTIFF images
+- [Utilities](Documents/Utilities.md) — supporting utility functions
+
 ## Command line utility nisarh5toimage
 
  While HDF5 is a powerful format for archiving, other formats such as tiff and simple binary can be easier for many users to work with. To facilitate working with NISAR data for these users, the `nisarh5toimage` command line utility can:
