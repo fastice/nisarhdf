@@ -59,7 +59,7 @@ class nisarROFFHDF(nisarBaseRangeDopplerHDF):
     def parseParams(self, productType='pixelOffsets', polarization=None,
                     layers=['layer1', 'layer2', 'layer3'],
                     fields=None, secondGeodat=None, noLoadData=False,
-                    **keywords):
+                    fixLayerRegistration=False, **keywords):
         '''
         Parse all the params needed for offsets
 
@@ -81,6 +81,9 @@ class nisarROFFHDF(nisarBaseRangeDopplerHDF):
         self.getSLCZeroDopplerTime()
         self.getOffsetSlantRange()
         self.getOffsetZeroDopplerTime()
+        self.layerShifts = {}
+        if fixLayerRegistration:
+            self.fixLayerRegistration()
         self.effectivePRF()
         self.getCenterIncidenceAngle()
         self.getEPSG()
@@ -112,6 +115,8 @@ class nisarROFFHDF(nisarBaseRangeDopplerHDF):
         
         # Load data
         self.getLayers(layerFields, layers=layers, noLoadData=noLoadData)
+        if self.layerShifts and not noLoadData:
+            self.shiftLayersToLayer3()
         self.loadData(singleFields, noLoadData=noLoadData,
                       resetFields=False)
         # scale factors to convert back to pixels
@@ -177,6 +182,69 @@ class nisarROFFHDF(nisarBaseRangeDopplerHDF):
         bands = self.h5[self.product][self.bands]
         self.slantRangeData = np.array(
             bands[self.frequency][self.productType]['slantRange'])
+
+    def fixLayerRegistration(self, maxCRID=5023):
+        '''
+        Temporary fix for ISCE3 ROFF products with CRID <= maxCRID. Each layer's
+        estimate is centred at startPixel + W_layer/2, but the product gives the shared
+        start pixel (r0/a0) and one slantRange/zeroDopplerTime vector at layer-1
+        centres. Move the grid to layer-3 centres and record the whole-sample shifts
+        that bring layers 1 and 2 onto it (applied by shiftLayersToLayer3). Residual
+        misplacement of the shifted layers is a few SLC pixels (coordinateConventions.md
+        sec 6a).
+        '''
+        crid = int(self.CRID[1:]) if self.CRID else None
+        if crid is not None and crid > maxCRID:
+            print(f'fixLayerRegistration: CRID {crid} > {maxCRID}, not applied')
+            return
+        w = self.windowParams
+        w1r = w['layer1']['slantRangeWindowSize']
+        w1a = w['layer1']['alongTrackWindowSize']
+        w3r = w['layer3']['slantRangeWindowSize']
+        w3a = w['layer3']['alongTrackWindowSize']
+        # Apply only to products with the bug's signature: vectors at the layer-1
+        # centre of the start pixel
+        rLayer1 = self.SLCNearRange + (self.r0 + w1r / 2) * self.SLCRangePixelSize
+        tLayer1 = self.SLCFirstZeroDopplerTime + \
+            (self.a0 + w1a / 2) * self.SLCZeroDopplerTimeSpacing
+        if abs(self.slantRangeData[0] - rLayer1) > 0.1 * self.SLCRangePixelSize or \
+                abs(self.zeroDopplerTimeData[0] - tLayer1) > \
+                0.1 * self.SLCZeroDopplerTimeSpacing:
+            print('fixLayerRegistration: coordinates do not match the layer-1-centre '
+                  'pattern, not applied')
+            return
+        self.r0 += w3r // 2
+        self.a0 += w3a // 2
+        # Re-derive the offset grid from the new r0/a0 (this re-reads the vectors)
+        self.getOffsetSlantRange()
+        self.getOffsetZeroDopplerTime()
+        self.slantRangeData = self.slantRangeData + \
+            (w3r - w1r) / 2 * self.SLCRangePixelSize
+        self.zeroDopplerTimeData = self.zeroDopplerTimeData + \
+            (w3a - w1a) / 2 * self.SLCZeroDopplerTimeSpacing
+        for layer in w:
+            nA = round((w3a - w[layer]['alongTrackWindowSize']) / 2 / self.deltaA)
+            nR = round((w3r - w[layer]['slantRangeWindowSize']) / 2 / self.deltaR)
+            self.layerShifts[layer] = (nA, nR)
+        print(f'fixLayerRegistration: CRID {crid}, grid moved to layer-3 centres '
+              f'(r0 {self.r0}, a0 {self.a0}); layer shifts (az, rg) {self.layerShifts}')
+
+    def shiftLayersToLayer3(self):
+        '''
+        Move each loaded layer onto the layer-3 grid by its whole-sample shift
+        (new[j] = old[j + n]); the far edge fills with NaN.
+        '''
+        for field in self.dataFields:
+            data = getattr(self, field)
+            if data is None:
+                continue
+            for i, layer in enumerate(self.layers):
+                nA, nR = self.layerShifts.get(f'layer{layer}', (0, 0))
+                if nA == 0 and nR == 0:
+                    continue
+                shifted = np.full(data.shape[1:], np.nan, dtype=data.dtype)
+                shifted[:data.shape[1] - nA, :data.shape[2] - nR] = data[i, nA:, nR:]
+                data[i] = shifted
 
     def getOffsetSize(self):
         '''
