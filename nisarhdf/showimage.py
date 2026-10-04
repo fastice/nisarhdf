@@ -117,6 +117,25 @@ def blockAverage(arr, factor):
             axis=(1, 3))
 
 
+# Set from --dB in main(): show image values as decibels.
+DB_DISPLAY = False
+
+
+def displayAverage(arr, factor):
+    """blockAverage, then 10*log10 when --dB is on.
+
+    The average is taken in linear power first -- averaging dB values would
+    bias speckle low -- so the dB image matches what a coarser product would
+    show. Non-positive values have no dB value and become NaN.
+    """
+    avg = blockAverage(arr, factor)
+    if not DB_DISPLAY:
+        return avg
+    with np.errstate(all='ignore'):
+        db = np.where(avg > 0, 10.0 * np.log10(avg), np.nan)
+    return db.astype(avg.dtype, copy=False) if avg.dtype.kind == 'f' else db
+
+
 def readBand(ds, b):
     band = ds.GetRasterBand(b)
     data = band.ReadAsArray().astype(np.float32)
@@ -2370,9 +2389,9 @@ def showImage(image_defs, sw, sh, switch_infos=None, rtl=False,
                     raw_unmasked = cache[bname]
                 else:
                     if 'ds' in p_si:
-                        raw_unmasked = blockAverage(readBand(p_si['ds'], bnum), p_si['factor'])
+                        raw_unmasked = displayAverage(readBand(p_si['ds'], bnum), p_si['factor'])
                     else:
-                        raw_unmasked = blockAverage(
+                        raw_unmasked = displayAverage(
                             p_si['loaders'][bname](), p_si['factor'])
                     if cache is not None:
                         cache[bname] = raw_unmasked
@@ -2793,6 +2812,10 @@ def main():
     parser.add_argument('--mod', type=float, default=None, metavar='X',
                         help='Display image modulo X '
                              '(default: 100 with --vel, off otherwise)')
+    parser.add_argument('--dB', action='store_true',
+                        help='Display values in decibels, 10*log10 (for power '
+                             'such as GCOV HHHH/HVHV). Averaged in linear power '
+                             'before conversion; --vmin/--vmax are then in dB')
     parser.add_argument('--log', action='store_true',
                         help='With --vel: log-scaled HSV rendering (vmin=1, vmax=3000 m/yr; '
                              'override with --vmin/--vmax)')
@@ -2873,6 +2896,12 @@ def main():
         sys.exit('showimage: at most 3 files can be displayed with --vel')
     if args.log and not args.vel:
         sys.exit('--log requires --vel')
+    if args.dB and args.vel:
+        sys.exit('--dB and --vel are mutually exclusive')
+    global DB_DISPLAY
+    DB_DISPLAY = args.dB
+    if args.dB:
+        print('Displaying 10*log10 of the values (dB)')
     if args.bands and args.vel:
         sys.exit('--bands and --vel are mutually exclusive')
     if args.bands and len(args.files) != 1:
@@ -2947,7 +2976,7 @@ def main():
                     print(f'  Available: {", ".join(loaders.keys())}',
                           file=sys.stderr)
                     continue
-                base_dec = blockAverage(loaders[bname](), factor)
+                base_dec = displayAverage(loaders[bname](), factor)
                 dec = (np.where(np.isfinite(base_dec), base_dec % mod_val, base_dec)
                        if mod_val is not None else base_dec)
                 vmin = args.vmin if args.vmin is not None else (
@@ -2991,7 +3020,7 @@ def main():
                 else:
                     fi = max(1, math.ceil(nxi * n_display / sw), math.ceil(nyi / sh))
                 first_band = next(iter(loaders))
-                base_dec = blockAverage(loaders[first_band](), fi)
+                base_dec = displayAverage(loaders[first_band](), fi)
                 dec = (np.where(np.isfinite(base_dec), base_dec % mod_val, base_dec)
                        if mod_val is not None else base_dec)
                 vmin = args.vmin if args.vmin is not None else (
@@ -3240,7 +3269,7 @@ def main():
                       file=sys.stderr)
                 continue
             raw_band = readBand(ds, bnum)
-            raw_unmasked = blockAverage(raw_band, factor)
+            raw_unmasked = displayAverage(raw_band, factor)
             vrt_mask_full = readMaskBand(ds, bnum)
             vrt_mask = decimateMask(vrt_mask_full, factor) if vrt_mask_full is not None else None
             file_mask = externalFileMask(raw_band.shape, factor)
@@ -3309,7 +3338,7 @@ def main():
                 print(f'  Available bands: {", ".join(bnames)}')
 
             raw_band = readBand(ds, 1)
-            raw_unmasked = blockAverage(raw_band, fi)
+            raw_unmasked = displayAverage(raw_band, fi)
             vrt_mask_full = readMaskBand(ds, 1)
             vrt_mask = decimateMask(vrt_mask_full, fi) if vrt_mask_full is not None else None
             file_mask = externalFileMask(raw_band.shape, fi)

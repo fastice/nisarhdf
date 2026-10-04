@@ -30,6 +30,7 @@ showimage [options] FILE [FILE ...]
 | `--vmin X` | 2nd percentile | Lower clip value |
 | `--vmax X` | 98th percentile | Upper clip value |
 | `--mod X` | off | Display image modulo X (useful for phase wrapping) |
+| `--dB` | off | Display values in decibels, 10·log10 (for power such as GCOV `HHHH`/`HVHV`). Blocks are averaged in linear power before conversion, and `--vmin`/`--vmax` are then in dB. Not with `--vel`. |
 | `--decFactor N` | auto-fit screen | Decimation factor (per-image when files differ in size) |
 | `--fullRes` | — | Display at full resolution (equivalent to `--decFactor 1`) |
 | `--right` | — | Place the control palette at the right edge of the screen, with the image and plot/profile windows opening to its left (mirrors the default left-to-right layout) — lets a second instance run without overlapping the first |
