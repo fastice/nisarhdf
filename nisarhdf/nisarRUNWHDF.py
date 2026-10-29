@@ -126,12 +126,13 @@ class nisarRUNWHDF(nisarBaseRangeDopplerHDF):
             self.secondary.frame = self.frame
             self.genGeodatProperties()
             if fields is None:
-                fields = ['coherenceMagnitude',
-                          'connectedComponents',
-                          'ionospherePhaseScreen',
-                          'ionospherePhaseScreenUncertainty',
-                          'unwrappedPhase',
-                          'digitalElevationModel']
+                # Defaults are limited to what the file holds (slim products lack some)
+                fields = self.fieldsInFile(['coherenceMagnitude',
+                                            'connectedComponents',
+                                            'ionospherePhaseScreen',
+                                            'ionospherePhaseScreenUncertainty',
+                                            'unwrappedPhase',
+                                            'digitalElevationModel'])
             self.loadData(fields, noLoadData=noLoadData)
 
     def getSquint(self, secondary=False):

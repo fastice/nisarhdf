@@ -1242,6 +1242,41 @@ class nisarBaseHDF():
                 getattr(self, layerTypes[0])[len(layers) - 1, :, :])
             self.noDataLocations = np.isnan(tmp)
      
+    def fieldsInFile(self, fields, layer=None):
+        '''
+        Return the subset of fields present in this file, in order, printing
+        any that are absent. Slim products (downloadNISARoptimized) drop
+        bands the GrIMP workflow does not read, so default field lists are
+        filtered through this; a full product returns fields unchanged.
+
+        Parameters
+        ----------
+        fields : list of str
+            Field names (e.g. unwrappedPhase, snr, digitalElevationModel).
+        layer : str, optional
+            Layer to check for layered products (ROFF). The default is None.
+
+        Returns
+        -------
+        list of str
+            Fields present in the file.
+        '''
+        group = self.h5[self.product][self.bands][self.frequency][self.productType]
+        present = []
+        for field in fields:
+            if field == 'digitalElevationModel':
+                fieldGroup = group
+            else:
+                fieldGroup = group[self.polarization]
+                if layer is not None:
+                    fieldGroup = fieldGroup[layer]
+            if field in fieldGroup:
+                present.append(field)
+        missing = [x for x in fields if x not in present]
+        if missing:
+            print(f'{self.product}: not in file, skipped: {", ".join(missing)}')
+        return present
+
     def loadData(self, fields, useNumpy=True, noLoadData=False,
                  resetFields=True, power=False):
         '''

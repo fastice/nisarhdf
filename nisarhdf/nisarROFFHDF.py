@@ -106,9 +106,11 @@ class nisarROFFHDF(nisarBaseRangeDopplerHDF):
         # So far this is just the DEM
         singleFields = []
         if fields is None:
-            layerFields = self.fieldDict['pixelOffsets'] 
-            fields = layerFields + ['digitalElevationModel']
-            singleFields = ['digitalElevationModel']
+            # Defaults are limited to what the file holds (slim products lack some)
+            layerFields = self.fieldsInFile(self.fieldDict['pixelOffsets'],
+                                            layer=layers[0])
+            singleFields = self.fieldsInFile(['digitalElevationModel'])
+            fields = layerFields + singleFields
         else:
             layerFields = [x for x in fields if x not in ['digitalElevationModel']]
             singleFields = [x for x in fields if x in ['digitalElevationModel']]
