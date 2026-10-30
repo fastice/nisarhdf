@@ -85,7 +85,9 @@ class nisarGOFFHDF(nisarBaseGeocodedHDF):
                                            'snr']}
         # Setup fields
         if fields is None:
-            layerFields = self.fieldDict['pixelOffsets'] 
+            # Defaults are limited to what the file holds (slim products lack some)
+            layerFields = self.fieldsInFile(self.fieldDict['pixelOffsets'],
+                                            layer=layers[0])
         else:
             layerFields = [x for x in fields if x not in ['digitalElevationModel']]
         #

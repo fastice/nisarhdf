@@ -92,5 +92,6 @@ class nisarGUNWHDF(nisarBaseGeocodedHDF):
                      ['coherenceMagnitude',
                       'wrappedInterferogram']}
         if fields is None:
-            fields = fieldDict[self.productType]
+            # Defaults are limited to what the file holds (slim products lack some)
+            fields = self.fieldsInFile(fieldDict[self.productType])
         self.loadData(fields, noLoadData=noLoadData)
